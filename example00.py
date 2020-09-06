@@ -1,7 +1,10 @@
 """ """
+
 import pandas as pd
+import os
+
 import toml
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
 
 def pt2sec(pt_time):
@@ -16,6 +19,24 @@ def get_duration(item):
 def get_basicinfo(snippet):
     keys = ('title', 'description', 'channelTitle')
     return {k: snippet[k] for k in keys}
+
+
+def fetch_video_info(response, as_df=True):
+    info_list = []
+    for item in response['items']:
+        info = {}
+        info['title'] = item['snippet']['title']
+        info['kind'] = item['id']['kind']
+        info['videoId'] = item['id']['videoId']
+        info['description'] = item['snippet']['description']
+        info['publishTime'] = item['snippet']['publishTime']
+        info['channelTitle'] = item['snippet']['channelTitle']
+        info['thumbnails_url'] = item['snippet']['thumbnails']['default']['url']
+        info_list.append(info)
+    if as_df:
+        return pd.DataFrame(info_list)
+    else:
+        info_list
 
 # --------------------------------------------------------------------
 
@@ -48,25 +69,42 @@ print('title:', item['snippet']['title'], 'id:', item['id'])
 # --------------------------------------------------------------------
 
 # Fetch most viewed chennel
+# TODO: get from toml
 chennel_id = item['id']['channelId']
 
 
 # Fetch all video snippets in specified channels
-response = service.search().list(part='snippet',
-                                channelId=chennel_id,
-                                order='viewCount',
-                                type='video',
-                                maxResults=50).execute()
-videoids = [item['id']['videoId']
-                for item in response['items']]
-len(videoids)
+# if response['pageInfo'] > 500:
+
+n_requested = 50
+earliest_publishedtime =\
+    datetime.now(tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+result = []
+while True:
+    response = service.search().list(part='snippet',
+                                    channelId=chennel_id,
+                                    order='date',
+                                    type='video',
+                                    publishedBefore=earliest_publishedtime,
+                                    maxResults=n_requested).execute()
+    video_info = fetch_video_info(response)
+    result.append(video_info)
+    earliest_publishedtime = video_info['publishTime'].min()
+    print(response['pageInfo'])
+    if len(response['items']) < n_requested:
+        break
+
+if len(result) > 1:
+    df_video_list = pd.concat(result, axis=0)
+else:
+    df_video_list = result[0]
 
 
-# publishedAfter
-# publishedBefore
 # --------------------------------------------------------------------
-
+# Request contents details of video ids
+# --------------------------------------------------------------------
 part = ['snippet', 'contentDetails']
+videoids = list(df_video_list['videoId'].unique())
 response = service.videos().list(part=part, id=videoids).execute()
 
 results = []
