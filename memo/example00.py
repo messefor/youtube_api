@@ -8,31 +8,60 @@ https://qiita.com/pasaremon/items/df461947344bb76ee25f
 
 import os
 import sys
-
+import pickle
 import re
 import toml
 from datetime import datetime, timedelta, timezone
-
 import httplib2
 import toml
 import pandas as pd
 
+# from oauth2client import client
+# from oauth2client import tools
+# from oauth2client.file import Storage
+
 from googleapiclient.discovery import build
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 
-from oauth2client import client
-from oauth2client import tools
-from oauth2client.file import Storage
-
-
-def get_credentials(credential_store_path):
+def get_credentials_old(credential_storage_path):
     flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE,
                                     scope=YOUTUBE_READ_WRITE_SCOPE)
-    storage = Storage(credential_store_path)
+    storage = Storage(credential_storage_path)
     credentials = storage.get()
     if credentials is None or credentials.invalid:
         flags = tools.argparser.parse_args()
         credentials = tools.run_flow(flow, storage, flags)
     return credentials
+
+
+def get_credentials(client_secret_file, scopes,
+                    token_storage_pkl='token.pickle'):
+    '''Recommended OAuth2 via google_auth_oauthlib
+
+        https://developers.google.com/drive/api/v3/quickstart/python#step_1_turn_on_the_api_name
+    '''
+    creds = None
+    # The file token.pickle stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first
+    # time.
+    if os.path.exists(token_storage_pkl):
+        with open(token_storage_pkl, 'rb') as token:
+            creds = pickle.load(token)
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                client_secret_file, scopes=scopes)
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open(token_storage_pkl, 'wb') as token:
+            pickle.dump(creds, token)
+
+    return creds
 
 
 def pt2sec(pt_time):
@@ -81,10 +110,9 @@ def fetch_video_info(response, as_df=True):
         info_list
 
 
-def get_video_list_in_channel(youtube, channel_id):
+def get_video_list_in_channel(youtube, channel_id, max_req_cnt=2):
 
     n_requested = 50
-    max_req_cnt = 2
 
     earliest_publishedtime =\
         datetime.now(tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -133,6 +161,7 @@ def get_contents_detail(youtube, videoids):
 
 def main():
 
+
     # --------------------------------------------------------------------
     # API Access
     # --------------------------------------------------------------------
@@ -142,7 +171,6 @@ def main():
     YOUTUBE_API_VERSION = 'v3'
 
     CLIENT_SECRET_FILE = 'config/client_secret.json'
-    APPLICATION_NAME = 'youtube-api'
 
     # B-life channel ID
     channel_id = 'UCd0pUnH7i5CM-Y8xRe7cZVg'
@@ -170,11 +198,10 @@ def main():
 
     df_video_list = get_video_list_in_channel(youtube, channel_id)
 
-    df_video_list.shape
-
-    csv_path = 'df_video.csv'
+    # df_video_list.shape
+    # csv_path = 'df_video.csv'
     # df_video_list.to_csv(csv_path)
-    df_video = pd.read_csv(csv_path)
+    # df_video = pd.read_csv(csv_path)
 
     # --------------------------------------------------------------------
     # Request contents details of video ids
@@ -199,13 +226,18 @@ def main():
 
     # videoid = df_video_playlist['id'].iloc[0]
 
-    credential_store_path = os.path.join(credential_dir, 'google_drive.json')
-
-
-    credentials = get_credentials(credential_store_path)
-
+    creds = get_credentials(
+                        client_secret_file=CLIENT_SECRET_FILE,
+                        scopes=YOUTUBE_READ_WRITE_SCOPE
+                        )
     youtube_auth = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-                    http=credentials.authorize(httplib2.Http()))
+                        credentials=creds)
+
+    # Old credential process
+    # credential_storage_path = 'config/credentials.json'
+    # creds = get_credentials(credential_storage_path)
+    # youtube_auth = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+    #                 http=credentials.authorize(httplib2.Http()))
 
     # Add Playlist
     # This code creates a new, private playlist in the authorized user's channel.
@@ -244,6 +276,7 @@ def main():
                           )
                        )
                 ).execute()
+
 
 if __name__ == '__main__':
     main()
