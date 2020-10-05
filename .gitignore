@@ -3,5 +3,6 @@ data/
 src/
 .venv/
 .ipynb_checkpoints/
+figs/
 
 *.pickle
