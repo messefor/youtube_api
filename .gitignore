@@ -1,8 +1,9 @@
 config/
 data/
-src/
 .venv/
 .ipynb_checkpoints/
 figs/
+
+src/apikey/article_api_key.ipynb
 
 *.pickle
